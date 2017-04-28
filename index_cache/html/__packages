@@ -1,0 +1,12 @@
+base
+NLP
+tm
+stringr
+dplyr
+e1071
+ggplot2
+wordcloud2
+stackr
+C50
+lubridate
+knitr

@@ -1,0 +1,343 @@
+---
+title: "Final-Project"
+subtitle: "Predicting and Classificating Question Score"
+author: "Alfredo Quintana - Miguel Porro "
+output: 
+     prettydoc::html_pretty:
+         theme: cayman
+        
+
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r  include=FALSE, cache=TRUE}
+source("score_classification.R")
+source("exploratory_analysis.R")
+source("closed_classification.R")
+```
+
+```{r  include=FALSE, cache=TRUE}
+source("score_regression.R")
+source("timeseries.R")
+```
+
+## **Introducción y Motivación**
+
+El desarrollo integral del estudiante de matemática se basa en la investigación y recopilación de
+información adicional a la estudiada en clases, llegar a profundizar un tema puede ser muy sencillo
+hoy en día con el acceso a internet, pero a medida que el estudiante avanza en su carrera empieza a
+dificultarse la búsqueda y recopilación de información dado a la complejidad de las asignaturas, en algunos casos surgen
+problemas de mayor dificultad que obligan a buscar ayuda profesional y en este caso salen a relucir
+sites o foros donde personas del área comparten dudas y conocimiento, en particular está el caso de
+[math.stackexchange.com](https://math.stackexchange.com), en el cual los usuarios participan en dicho intercambio de
+información. Este website resulta
+una herramienta útil para todo tipo de personas, además, es pública, gratuita y de fácil manejo, en él
+se hacen en promedio dos preguntas por minuto, y el tiempo promedio en obtener una respuesta es
+de 10 min, lo cual lo convierte en una fuente confiable para obtener respuestas a dudas emergentes, al
+menos para quien busca tener una idea de hacia dónde va dirigido el problema. Con mas de 1.372.2971
+preguntas y mas de 7.015.119 usuarios, [math.stackexchange.com](https://math.stackexchange.com) se ha convertido en una herramienta útil no solo para estudiantes de matemáticas puras si no para cualquier estudiante cuya carrera este ligada con esta ciencia.  
+
+El equipo esta interesado en determinar a traves de modelos de clasificacion y mineria de texto, si una pregunta hecha en el sitio tiene probabilidades de ser cerrada luego de una revisión, ya sea por estar mal redactada, ser un duplicado de otra pregunta, etc. Además se quiere predecir el Score de una pregunta, la idea es identificar preguntas con baja calidad y hacer seguimiento de las mismas.
+
+## **Los Datos**
+
+El proceso de obtención de los datos se realizo mediante el uso de la [**API**](https://api.stackexchange.com/) de stackexchange.com y la biblioteca **stackr** desarrollada por [David Robinson](https://github.com/dgrtwo), todo el codigo y documentación asociada se encuentra en el siguiente enlace [**StackMath**](https://github.com/Qalfredo/stackmath). 
+Inicialmente hacemos un llamado a la API para obtener la informacion general del sitio a traves de la función **stack_info()**:
+
+```{r  echo = FALSE }
+library(knitr)
+kable(informacion)
+
+```
+
+Toda la manipulación y limpieza de los datos se hizo usando las bibliotecas dplyr,tm,stringr. Se transformo el cuerpo de texto de cada pregunta en texto tratable: se eliminaron los signos de puntuaci{on, se removieron los números y palabras que no aportan información al modelo (stopwords). El resultado del preprocesamiento es una matriz Término-Documento, la función peso que consideramos fue TF-IDF Weight:
+
+
+```{r  echo = FALSE }
+library(knitr)
+kable(questions_mining[1:5,1:8])
+
+```
+
+Puede observarse en la tabla anterior que en el caso de la tarea de clasificación fue necesario discretizar la variable "score", usamos el siguiente criterio:
+$$ score>0 \Rightarrow score = 1$$
+
+
+$$ score<0 \Rightarrow score = -1$$
+$$ score = 0 \Rightarrow score = 0$$
+
+## **Análisis Exploratorio**
+
+### Relaciones entre las variables númericas
+
+```{r  echo=FALSE}
+library(ggplot2)
+layout(matrix(c(1,1,2,3), 2, 2, byrow = TRUE))
+ ggplot(questions, aes(x = questions$score, y = questions$view_count)) + geom_point(size = 0.9, aes(colour = factor(questions$is_answered)) ) + xlab("Score") + ylab("Visualizaciones") + scale_color_discrete(name= "Respuesta válida")
+
+ggplot(questions, aes(x = questions$answer_count, y = questions$score)) + geom_point(size = 0.9, aes(colour = factor(questions$is_answered)) ) + xlab("Respuestas") + ylab("Score") + scale_color_discrete(name = "Respuesta válida")
+
+
+ ggplot(cloo, aes(x = cloo$score, y = cloo$view_count)) + geom_point(size = 3, aes(colour = factor(cloo$is_closed)) , alpha =0.3) + ylab ("Visualizaciones") + xlab("Score") + scale_color_discrete(name= "Cerrada")
+
+
+
+```
+
+
+#### Tags mas frecuentes en el sitio y nube de palabras
+```{r  echo=FALSE}
+library(wordcloud2)
+nube
+grafico.1
+
+```
+
+### Tags mas frecuentes dentro de las 10,000 preguntas
+
+```{r  echo=FALSE}
+library(ggplot2)
+ ggplot(freq.terms.dataframe, aes(x = freq_terms,y = f)) + geom_bar(stat = "identity",  width = 0.5) + coord_flip() + xlab("Tags") + ylab("Frecuency") 
+```
+
+
+### Comparación entre preguntas con respuesta válida y  sin respuesta
+
+
+```{r  echo=FALSE, message=FALSE}
+library(ggplot2)
+ggplot(questions,aes(x = is_answered)) + geom_histogram(stat = "count", width = 0.5) + xlab("Is answered") + ylab("Frequency")
+
+```
+
+### ¿ Cuál es el Tag mas frecuente dentro de las preguntas sin respuesta ?
+
+El análisis muestra que en el 2015 el Tag mas frecuente dentro de las preguntas sin respuesta valida es "probability"
+
+```{r  echo=FALSE, message=FALSE}
+library(ggplot2)
+ggplot(freq.terms.noadataframe, aes(x = freq_noa_terms,y = f_noa)) + geom_bar(stat = "identity",  width = 0.3) + coord_flip() + xlab("Tags") + ylab("Frecuency")
+
+```
+
+## Exploración mediante series temporales 
+
+Definición. Una serie de tiempo es un conjunto de observaciones xt, cada una registrada a un tiempo específico t.
+
+Componentes de una serie temporal
+
+El análisis clásico de las series temporales se basa en la suposición de que los valores que toma
+la variable de observación es la consecuencia de tres componentes, cuya actuación conjunta da como resultado los valores medidos, estos componentes son:
+
+1. Componente tendencia. Se puede definir como un cambio a largo plazo que se produce en la relación al nivel medio, o el cambio a largo plazo de la media. La tendencia se identifica con un movimiento suave de la serie a largo plazo.
+
+2. Componente estacional. Muchas series temporales presentan cierta periodicidad o dicho de
+otro modo, variación de cierto período (semestral, mensual, etc.). Por ejemplo las Ventas al
+Detalle en Puerto Rico aumentan por los meses de noviembre y diciembre por las festividades navideñas. Estos efectos son fáciles de entender y se pueden medir explícitamente o incluso se pueden eliminar de la serie de datos, a este proceso se le llama desestacionalización de la serie.
+
+3. Componente aleatoria. Esta componente no responde a ningún patrón de comportamiento, sino que es el resultado de factores fortuitos o aleatorios que inciden de forma aislada en una serie de tiempo.
+De estos tres componentes los dos primeros son componentes determinísticos, mientras que la última es aleatoria. Así se puede denotar la serie de tiempo como
+
+Xt = Tt + Et + ot
+
+donde Tt es la tendencia, Et es la componente estacional y ot es la componente aleatoria.
+
+
+```{r  echo=FALSE, message=FALSE}
+library(ggplot2)
+ ggplot(as.data.frame(se), aes(x = serie2, y = serie)) + geom_line(stat = "identity", aes(group = 1) ) + scale_x_continuous(name = "Month",breaks = 1:12,labels = c("1"="Jan","2"="Feb","3"="Mar","4"="Apr","5"="May","6"="Jun","7"="Jul","8"="Aug","9"="Sep","10"="Oct","11"="Nov","12"="Dec")) + ylab("Respuestas") + ggtitle("Oscilación Anual Tag: Probability") 
+
+
+```
+  
+  En la gráfica de la serie temporal se analizó el comportamiento de las preguntas y respuestas acerca de probabilidades, en la cual se observa un comportamiento regular, con picos en enero a febrero, asociados al inicio de actividades academicas a nivel global, con tendencia a subir en junio y julio justo antes de los periodos vacacionales, mostrande el decrecimiento mas importante justo entre julio y agosto (periodo vacacional) y un alza importante entre septiembre y agosto, justo donde se reinician las actividades académicas nuevamente.
+  
+  
+```{r  echo=FALSE, message=FALSE}
+library(ggplot2)
+ ggplot(as.data.frame(se2), aes(x = serie2, y = serie.algebra)) + geom_line(stat = "identity", aes(group = 1) ) + scale_x_continuous(name = "Month",breaks = 1:12,labels = c("1"="Jan","2"="Feb","3"="Mar","4"="Apr","5"="May","6"="Jun","7"="Jul","8"="Aug","9"="Sep","10"="Oct","11"="Nov","12"="Dec")) + ylab("Respuestas") + ggtitle("Oscilación Anual Tag: Algebra") 
+
+
+
+```
+
+Tal como se observa en la gráfica, las preguntas y respuestas de álgebra tiene un comportamiento regular, alcanzando su máximo entre abril y mayo, con un bajón importante de mayo a julio y luego su tendencia es a subir.
+Podemos inferir que de este tópico siempre hay dudas durante el año.
+
+```{r  echo=FALSE, message=FALSE}
+library(ggplot2)
+ ggplot(as.data.frame(se3), aes(x = serie2, y = serie.analisis)) + geom_line(stat = "identity", aes(group = 1) ) + scale_x_continuous(name = "Month",breaks = 1:12,labels = c("1"="Jan","2"="Feb","3"="Mar","4"="Apr","5"="May","6"="Jun","7"="Jul","8"="Aug","9"="Sep","10"="Oct","11"="Nov","12"="Dec")) + ylab("Respuestas")  + ggtitle("Oscilación Anual Tag: Real-Analysis")
+
+
+
+```
+
+Gráficamente se observa que las preguntas y respuestas de análisis real no muestran picos importantes durante el año, alcanzando sus niveles mas bajos entre marzo y mayo, con el único pico importante justo al inicio de actividades académicas entre septiembre y octubre.
+
+```{r  echo=FALSE, message=FALSE}
+library(ggplot2)
+  ggplot(as.data.frame(se4), aes(x = serie2, y = serie.calculus)) + geom_line(stat = "identity", aes(group = 1) ) + scale_x_continuous(name = "Month",breaks = 1:12,labels = c("1"="Jan","2"="Feb","3"="Mar","4"="Apr","5"="May","6"="Jun","7"="Jul","8"="Aug","9"="Sep","10"="Oct","11"="Nov","12"="Dec")) + ylab("Respuestas") + ggtitle("Oscilación Anual Tag: Calculus")  
+ 
+
+
+```
+  
+  
+  En esta gráfica observamos que el comportamiento de la serie temporal asociado a las preguntas y respuestas de cálculo se mantienen como se esperaba, constantes entre febrero y mayo, disminuyendo entre junio y agosto, (período vacacional globalmente) mostrando un incremento muy importante al inicio de actividades académicas en los meses de agosto a octubre, en la cual su tendencia fue a subir.
+  
+  
+  
+  
+  
+
+#  **Machine Learning**
+Para esta tarea se realizo el tratamiento de los datos antes descrito y además se uso una división del conjunto de datos en subconjunto de entrenamiento (70%) y subconjunto de prueba (30%).
+
+#### Métricas para la evaluación del rendimiento de los modelos
+
+$$Sensitivity= \dfrac{TP}{TP+FN}$$
+
+$$Specificity = \dfrac{TN}{TN+FP} $$
+$$Accuracy = \dfrac{TP+FN}{TP+FN+TN+FP} $$
+$$RMSE = \sqrt{\dfrac{1}{N}\sum (Obs-Pred)^2} $$
+
+
+## Clasificación de preguntas según el Score:
+
+Se tomaron en cuenta dos algoritmos de clasificación:
+
+ - SVM (Support Vector Machine)
+ - NaiveBayes ( Naive Bayes Ingenuo)
+
+
+
+```{r  echo=TRUE, message=FALSE, cache=TRUE}
+library(e1071)
+
+model.svm 
+
+
+pred.svm = predict(model.svm, question.testing)
+
+
+table(question.testing$score,pred.svm,dnn=c("Obs","Pred"))
+```
+
+
+
+```{r  echo=TRUE, message=FALSE, cache=TRUE}
+library(e1071)
+
+train <- sample(1:10000,7000)
+test <- sample(c(1:10000)[-train],3000)
+naive.questions <- naiveBayes(x= as.matrix(questions_dtm)[train,], y = questions_mining$score[train])
+
+pp <- predict(naive.questions,question.testing) 
+
+
+
+table(pp, questions_mining$score[test],dnn=c("Obs","Pred")) 
+
+```
+
+## Predicción del Score de una pregunta
+
+Se tomo en cuenta el algoritmo svm como máquina de regresión.
+
+
+```{r  echo=TRUE, message=FALSE, cache=TRUE}
+library(e1071)
+
+model.svr 
+
+
+```
+
+```{r  echo=TRUE, message=FALSE, cache=TRUE}
+
+rmse <- function(error)
+{
+  sqrt(mean(error^2))
+}
+rmse(error)
+
+
+```
+
+Además de considerar el RSME como medida de rendimiento del modelo, en este caso establecimos que un margen optimo para nuestro problema es de 1.5, es decrir, $$ |error|\leq 1.5.$$
+Con un cálculo bastante sencillo se concluye que el modelo "predice" el Score de una pregunta dentro de este margen en un 79.5% de los casos.
+```{r  echo=TRUE, message=FALSE}
+
+count = 0
+for(i in 1:600){
+  if (abs(error[i]) <= 1.5){count = count + 1}else{count = count}
+}
+count 
+
+
+```
+
+
+## Clasificación de preguntas Cerradas
+
+Se tomaron en cuenta 3 algoritmos de clasificacion:
+-SVM (Support Vector Machine)
+-NaiveBayes (Naive Bayes Ingenuo)
+-C5.0 (Arbol de Decisión)
+
+
+```{r  echo=TRUE, message=FALSE, cache=TRUE}
+
+ train.sample <- sample(1:1189,832)
+ test.sample <- sample(c(1:1189)[-train.sample],357)
+
+closed.svm
+
+table(pred.test,vector.class[test.sample])
+
+
+
+```
+
+
+
+```{r  echo=TRUE, message=FALSE}
+
+ ## tree.model <- C5.0(x= closed.training, y = as.factor(vector.class[train.sample]), trials = 20)
+table(p ,as.factor(vector.class[test.sample]))
+
+
+
+```
+
+
+
+```{r  echo=TRUE, message=FALSE, cache=TRUE}
+
+
+# naive.closed.model <- naiveBayes(x = closed.training , y = vector.class[train.sample] , data = closed.train)
+
+table(p1, vector.class.2[test.sample])
+
+
+```
+
+```{r  echo=TRUE, message=FALSE, cache=TRUE}
+
+
+ggplot(medias, aes(x = rownames(medias),y = colMeans(tabla))) + geom_bar(stat = "identity",  width = 0.5) + coord_flip() + xlab("Words") + ylab("Weight") + ggtitle("TF-IDF Promedio por Palabra")
+
+
+```
+
+
+
+
+
+
+
+
+
+
